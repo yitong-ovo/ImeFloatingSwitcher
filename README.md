@@ -1,50 +1,84 @@
 # 输入法悬浮切换
 
-这是一个 Kotlin Android 小工具：在软键盘显示时显示一个可拖动悬浮按钮，在两个“已启用输入法”之间切换。实现不需要 Root，也不启用无障碍服务；需要 Shizuku 提供一个长生命周期 UserService。
+键盘弹起时显示一个可拖动的悬浮按钮，点击它在两个已启用输入法之间切换。按钮大小可调，切回输入法时会尝试恢复该输入法上次使用的语言或布局。
 
-## 当前实现
+## 界面
 
-- `minSdk 31`、`compileSdk 36`、`targetSdk 36`
-- 单 Activity + `ImeWatcherService` 前台服务
-- Shizuku UserService 直接取得 `input_method` Binder，并调用 `binder.dump(..., ["--dump-priority", "CRITICAL"])`
-- 文本解析优先读取 `mInputShown/inputShown`，否则读取 `mImeWindowVis`
-- `UNKNOWN` 不会被误判为隐藏；包含 2 秒未知保持、隐藏双采样防抖和切换保护窗口
-- 使用 `InputMethodManager.getEnabledInputMethodList()` 选择输入法，切换命令使用参数数组，不经过 `sh -c`
-- 每次从输入法切走前记录其当前 subtype；再次切回时恢复上次使用的语言或布局，已被禁用的 subtype 会自动跳过
-- 为兼容 Android 11+ 包可见性和部分 One UI 行为，已启用列表会与 `Settings.Secure.ENABLED_INPUT_METHODS` 做只读合并
-- 监测悬浮窗会检查实际 WindowManager 附着状态；窗口失效或位置越界时自动重建
-- 只在内存保留最近 50 次采样的脱敏统计；Phase 0 按钮显示有限长度的关键行，不保存原始 dump
-- 未实现 proto 解析：先用真实设备样本确认 One UI 字段，再决定是否增加
+![配置页](docs/screenshots/settings.png)
 
-## 编译
+配置页显示 Shizuku、悬浮窗、通知权限和可用输入法状态，并可以选择两个输入法。
 
-用 Android Studio 打开项目根目录，使用 JDK 17 和 Android SDK 36。命令行构建需要 Gradle 8.11.1、Android SDK Platform 36 和 Build Tools 36：
+![键盘弹起时的悬浮按钮](docs/screenshots/keyboard.png)
+
+键盘弹起后，悬浮按钮会显示在屏幕上。
+
+![切换到 Gboard 时的悬浮按钮](docs/screenshots/floating-button.png)
+
+按钮上的文字会随目标输入法变化。
+
+## 使用条件
+
+- Android 12 或更高版本（API 31）。
+- 已启动 [Shizuku](https://shizuku.rikka.app/)，并已授予本应用权限。
+- 系统中至少启用两个不同的输入法。
+- 已授予悬浮窗权限。
+- Android 13 或更高版本已授予通知权限。
+
+应用本身不需要 Root，也不需要启用无障碍服务。没有 Root 时，可以使用无线调试或 ADB 启动 Shizuku。
+
+## 安装
+
+项目当前提供源码构建方式。用 Android Studio 打开项目根目录，使用 JDK 17 和 Android SDK 36。也可以在项目根目录执行：
 
 ```bash
-gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+gradle --no-daemon :app:assembleDebug
 ```
 
-APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。安装：
+生成的 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。安装到已连接的设备：
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## 首次使用（无 Root）
+## 配置
 
-1. 安装并启动 Shizuku，使用 Shizuku 提供的无线调试/ADB 启动方式。
-2. 启动本应用，点击“请求 Shizuku 授权”，确认授权后检查 UID；无 Root 的 ADB 模式通常显示 `2000`。
-3. 授予悬浮窗权限和通知权限。
-4. 确认 Gboard、豆包或其他目标输入法已经在系统设置中启用，在本应用选择 Primary/Secondary 并保存。应用会在第一次切走时记住当前语言，以后自动恢复。
-5. 先点击“测试读取 IME 状态（Phase 0 探针）”：分别在键盘隐藏和显示时采样，查看 `SHOWN/HIDDEN/UNKNOWN`、字段值和关键行。
-6. 点击“测试悬浮按钮”确认位置；再点击“启动监测”。
+1. 启动 Shizuku。
+2. 打开本应用，点击请求 Shizuku 授权并完成授权。
+3. 按应用提示授予悬浮窗权限和通知权限。
+4. 在系统设置中启用要使用的两个输入法。
+5. 在本应用的切换设置中选择主输入法和辅助输入法。两个输入法必须不同，选择会自动保存。
+6. 点击启动监测。
+7. 打开任意文本输入框。键盘弹起后，点击悬浮按钮切换输入法；拖动按钮可以调整位置。
 
-如果 Shizuku 没启动、权限被撤回或 Binder 断开，应用会隐藏按钮并在通知中提示，不会启动 shell 轮询，也不会崩溃。解析器不兼容时可以打开“解析不兼容时手动常显”，但自动显隐会被关闭。
+应用会在通知中显示监测状态，也可以从通知中暂停或停止监测。
 
-## 设计边界
+## 键盘识别失败时
 
-应用没有全局 IME 可见回调，因此采用 Shizuku UserService 中的 Binder CRITICAL dump 采样。普通应用没有可靠的跨应用 `WindowInsets` 监听能力；本项目也不使用截图、OCR、坐标点击、编辑框文本、剪贴板、通知、麦克风或前台应用识别。
+打开高级设置与诊断，启用“键盘识别失败时保持按钮显示”。启用后按钮会保持显示，不再根据键盘状态自动隐藏。这个选项适合输入法状态无法被当前系统版本正确识别的设备。
 
-三星 One UI 可能把普通应用悬浮窗放到输入法窗口下方。按钮默认在右侧应用内容区域附近，支持长按拖动；实际设备验证前不承诺它能覆盖在键盘按键之上。
+## 权限和隐私
 
-更多兼容性和隐私说明见 [COMPATIBILITY.md](COMPATIBILITY.md) 与 [PRIVACY.md](PRIVACY.md)。
+- Shizuku 用于读取输入法状态和执行用户点击的输入法切换。
+- 悬浮窗权限用于显示可拖动的切换按钮。
+- 通知权限用于显示前台监测服务的状态。
+- 应用只在本地保存两个输入法 ID、上次使用的 subtype、按钮大小和位置，以及手动常显开关。
+- 最近的采样统计和诊断文本只保存在内存中，应用退出后丢弃；原始系统 dump 不写入文件。
+- 应用不声明网络权限，不接入广告、统计或云服务。
+- 应用不读取其他应用的输入内容、剪贴板、通知内容、麦克风或前台应用内容，也不使用截图、OCR 和无障碍服务。
+
+## 已知限制
+
+- 运行监测期间需要保持 Shizuku 可用。Shizuku 停止、授权撤回或连接断开时，按钮会隐藏。
+- 自动显示和隐藏依赖系统提供的输入法状态。在不同 Android 版本和厂商系统上，状态字段可能不同。
+- Samsung One UI 可能把悬浮窗放在输入法窗口下方。按钮默认位于应用内容区域附近，可以拖动到合适位置。
+- 目标输入法被禁用或卸载后不会执行切换，需要重新选择可用输入法。
+
+更多兼容性记录见 [COMPATIBILITY.md](COMPATIBILITY.md)。
+
+## 开发和测试
+
+运行单元测试并构建 Debug APK：
+
+```bash
+gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+```
