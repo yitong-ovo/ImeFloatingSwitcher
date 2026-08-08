@@ -2,6 +2,17 @@ apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 apply plugin: 'org.jetbrains.kotlin.plugin.parcelize'
 
+def releaseStoreFile = System.getenv('ANDROID_KEYSTORE_PATH')
+def releaseStorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias = System.getenv('ANDROID_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
+def releaseSigningConfigured = [
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+].every { it != null && !it.isBlank() }
+
 android {
     namespace 'ng.yito.imefloatingswitcher'
     compileSdk 36
@@ -10,8 +21,8 @@ android {
         applicationId 'ng.yito.imefloatingswitcher'
         minSdk 31
         targetSdk 36
-        versionCode 2
-        versionName '0.2.0'
+        versionCode project.property('appVersionCode').toString().toInteger()
+        versionName project.property('appVersionName').toString()
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
@@ -27,6 +38,25 @@ android {
     buildFeatures {
         buildConfig true
         aidl true
+    }
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
+        }
     }
 
     packaging {

@@ -4,17 +4,13 @@
 
 ## 界面
 
-![配置页](docs/screenshots/settings.png)
+<p align="center">
+  <img src="docs/screenshots/settings.png" width="360" alt="配置页">
+</p>
 
-配置页显示 Shizuku、悬浮窗、通知权限和可用输入法状态，并可以选择两个输入法。
-
-![键盘弹起时的悬浮按钮](docs/screenshots/keyboard.png)
-
-键盘弹起后，悬浮按钮会显示在屏幕上。
-
-![切换到 Gboard 时的悬浮按钮](docs/screenshots/floating-button.png)
-
-按钮上的文字会随目标输入法变化。
+<p align="center">
+  <img src="docs/screenshots/keyboard.png" width="800" alt="悬浮按钮在 Gboard 和豆包输入法上的显示效果">
+</p>
 
 ## 使用条件
 
@@ -82,3 +78,16 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```bash
 gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
 ```
+
+## 版本和发布
+
+版本号使用三段式 SemVer。`appVersionName` 和 `appVersionCode` 位于 `gradle.properties`，前者用于用户看到的版本号，后者必须在每次发布时递增。
+
+推送到 `main` 或提交 Pull Request 会运行测试和 Debug 构建。只有推送与 `appVersionName` 完全一致的 tag，才会创建 GitHub Release。例如当前版本的发布命令是：
+
+```bash
+git tag -a v0.2.0 -m "发布 v0.2.0"
+git push origin v0.2.0
+```
+
+Release 使用 GitHub 自动生成更新说明，并上传签名 APK 和对应的 SHA-256 校验文件。签名密钥只保存在本机的未跟踪文件、系统 keychain 和 GitHub Secrets 中，不进入仓库。
