@@ -23,6 +23,7 @@ import ng.yito.imefloatingswitcher.ime.EnabledImeRepository
 import ng.yito.imefloatingswitcher.ime.ImeIdValidator
 import ng.yito.imefloatingswitcher.ime.ImeSwitchCoordinator
 import ng.yito.imefloatingswitcher.ime.currentImeId
+import ng.yito.imefloatingswitcher.ime.currentImeSubtypeHash
 import ng.yito.imefloatingswitcher.model.ImeStatus
 import ng.yito.imefloatingswitcher.overlay.OverlayController
 import ng.yito.imefloatingswitcher.settings.AppSettings
@@ -239,9 +240,13 @@ class ImeWatcherService : Service() {
         val currentForLabel = lastPublicImeId
         overlayController.update(settings, currentForLabel, primary, secondary, switching = true)
         serviceScope.launch {
-            val target = withContext(Dispatchers.IO) {
+            val (current, currentSubtypeHash) = withContext(Dispatchers.IO) {
                 val current = currentImeId() ?: lastPublicImeId
-                ImeSwitchCoordinator.chooseTarget(current, primary, secondary)
+                current to currentImeSubtypeHash()
+            }
+            val target = ImeSwitchCoordinator.chooseTarget(current, primary, secondary)
+            if (currentSubtypeHash != null && (current == primary || current == secondary)) {
+                settingsRepository.rememberImeSubtype(current, currentSubtypeHash)
             }
             val enabled = withContext(Dispatchers.IO) { enabledImeRepository.isEnabled(target) }
             if (!enabled) {
@@ -249,7 +254,7 @@ class ImeWatcherService : Service() {
                 updateNotification("目标输入法已禁用，请重新选择")
                 return@launch
             }
-            val result = gateway.setInputMethod(target)
+            val result = gateway.setInputMethod(target, settings.rememberedSubtypeHash(target))
             switching.set(false)
             if (result.success) {
                 updateNotification("已切换输入法（${result.elapsedMs}ms）")

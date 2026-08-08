@@ -198,7 +198,7 @@ class MainActivity : AppCompatActivity() {
 
         inputMethodSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         inputMethodSection.addView(sectionTitle("切换设置"))
-        inputMethodSection.addView(bodyText("选择点击悬浮按钮时互相切换的两个输入法。").apply {
+        inputMethodSection.addView(bodyText("选择点击悬浮按钮时互相切换的两个输入法；切换时会恢复各自上次使用的语言。").apply {
             setPadding(0, 0, 0, dp(12))
         })
         val primaryDropdown = imeDropdown("主输入法")
@@ -446,7 +446,7 @@ class MainActivity : AppCompatActivity() {
             enabledImes.size < 2 -> "至少需要启用两个输入法。"
             primary == null || secondary == null -> "请选择两个输入法。"
             primary == secondary -> "主输入法和辅助输入法不能相同。"
-            else -> "选择会自动保存。"
+            else -> "选择会自动保存，并记住每个输入法上次使用的语言。"
         }
         val error = primary == secondary && primary != null || enabledImes.size < 2
         imeSelectionHint.text = message

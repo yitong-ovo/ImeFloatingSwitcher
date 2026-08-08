@@ -15,3 +15,10 @@ fun Context.currentImeId(): String? = runCatching {
         )
     }
 }.getOrNull()
+
+@Suppress("DEPRECATION")
+fun Context.currentImeSubtypeHash(): Int? = runCatching {
+    getSystemService(InputMethodManager::class.java)
+        .currentInputMethodSubtype
+        ?.hashCode()
+}.getOrNull()

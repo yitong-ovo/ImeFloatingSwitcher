@@ -6,5 +6,5 @@ import ng.yito.imefloatingswitcher.model.SwitchResult;
 interface IPrivilegedImeService {
     void destroy() = 16777114;
     ImeSnapshot readImeSnapshot() = 1;
-    SwitchResult setInputMethod(String imeId) = 2;
+    SwitchResult setInputMethod(String imeId, int subtypeHash, boolean restoreSubtype) = 2;
 }

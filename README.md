@@ -10,6 +10,7 @@
 - 文本解析优先读取 `mInputShown/inputShown`，否则读取 `mImeWindowVis`
 - `UNKNOWN` 不会被误判为隐藏；包含 2 秒未知保持、隐藏双采样防抖和切换保护窗口
 - 使用 `InputMethodManager.getEnabledInputMethodList()` 选择输入法，切换命令使用参数数组，不经过 `sh -c`
+- 每次从输入法切走前记录其当前 subtype；再次切回时恢复上次使用的语言或布局，已被禁用的 subtype 会自动跳过
 - 为兼容 Android 11+ 包可见性和部分 One UI 行为，已启用列表会与 `Settings.Secure.ENABLED_INPUT_METHODS` 做只读合并
 - 监测悬浮窗会检查实际 WindowManager 附着状态；窗口失效或位置越界时自动重建
 - 只在内存保留最近 50 次采样的脱敏统计；Phase 0 按钮显示有限长度的关键行，不保存原始 dump
@@ -34,7 +35,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 1. 安装并启动 Shizuku，使用 Shizuku 提供的无线调试/ADB 启动方式。
 2. 启动本应用，点击“请求 Shizuku 授权”，确认授权后检查 UID；无 Root 的 ADB 模式通常显示 `2000`。
 3. 授予悬浮窗权限和通知权限。
-4. 确认 Gboard、豆包或其他目标输入法已经在系统设置中启用，在本应用选择 Primary/Secondary 并保存。
+4. 确认 Gboard、豆包或其他目标输入法已经在系统设置中启用，在本应用选择 Primary/Secondary 并保存。应用会在第一次切走时记住当前语言，以后自动恢复。
 5. 先点击“测试读取 IME 状态（Phase 0 探针）”：分别在键盘隐藏和显示时采样，查看 `SHOWN/HIDDEN/UNKNOWN`、字段值和关键行。
 6. 点击“测试悬浮按钮”确认位置；再点击“启动监测”。
 

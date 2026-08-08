@@ -111,9 +111,9 @@ class ShizukuGateway(
         }
     }
 
-    suspend fun setInputMethod(imeId: String): SwitchResult = withContext(Dispatchers.IO) {
+    suspend fun setInputMethod(imeId: String, subtypeHash: Int?): SwitchResult = withContext(Dispatchers.IO) {
         val remote = service ?: return@withContext SwitchResult.failure("USER_SERVICE_UNAVAILABLE", "Shizuku UserService is not connected")
-        runCatching { remote.setInputMethod(imeId) }.getOrElse {
+        runCatching { remote.setInputMethod(imeId, subtypeHash ?: 0, subtypeHash != null) }.getOrElse {
             disconnectAndAllowRetry()
             SwitchResult.failure("USER_SERVICE_CALL_FAILED", it.message ?: it.javaClass.simpleName)
         }

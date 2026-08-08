@@ -3,6 +3,7 @@ package ng.yito.imefloatingswitcher.shizuku
 import android.content.Context
 import android.os.IBinder
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.annotation.Keep
 import android.view.inputmethod.InputMethodManager
 import ng.yito.imefloatingswitcher.ime.ImeIdValidator
@@ -70,32 +71,62 @@ class PrivilegedImeUserService() : Stub() {
         }
     }
 
-    override fun setInputMethod(imeId: String): SwitchResult {
+    override fun setInputMethod(imeId: String, subtypeHash: Int, restoreSubtype: Boolean): SwitchResult {
         if (!ImeIdValidator.isValid(imeId)) {
             return SwitchResult.failure("INVALID_IME_ID", "The requested input method ID is not valid.")
         }
-        val enabled = runCatching {
-            userServiceContext
-                ?.getSystemService(InputMethodManager::class.java)
-                ?.enabledInputMethodList
-                ?.any { it.id == imeId } == true
-        }.getOrDefault(false)
-        if (!enabled) {
+        val inputMethodManager = userServiceContext
+            ?.getSystemService(InputMethodManager::class.java)
+        val inputMethodInfo = runCatching {
+            inputMethodManager?.enabledInputMethodList?.firstOrNull { it.id == imeId }
+        }.getOrNull()
+        if (inputMethodInfo == null) {
             return SwitchResult.failure("IME_NOT_ENABLED", "The requested input method is not enabled.")
         }
         val target = imeId
         val primary = listOf("/system/bin/ime", "set", "--user", "current", target)
         val first = runCommand(primary)
-        if (first.success) return first
-
-        val fallback = listOf("/system/bin/cmd", "input_method", "ime", "set", "--user", "current", target)
-        val second = runCommand(fallback)
-        return if (second.success) {
-            second.copy(stderr = "primary failed: ${first.stderr.take(160)}")
+        val switched = if (first.success) {
+            first
         } else {
-            second.copy(
-                errorCode = second.errorCode ?: "IME_SWITCH_FAILED",
-                errorMessage = "ime failed (${first.exitCode}); cmd input_method failed (${second.exitCode})"
+            val fallback = listOf("/system/bin/cmd", "input_method", "ime", "set", "--user", "current", target)
+            val second = runCommand(fallback)
+            if (second.success) {
+                second.copy(stderr = "primary failed: ${first.stderr.take(160)}")
+            } else {
+                second.copy(
+                    errorCode = second.errorCode ?: "IME_SWITCH_FAILED",
+                    errorMessage = "ime failed (${first.exitCode}); cmd input_method failed (${second.exitCode})"
+                )
+            }
+        }
+        if (!switched.success || !restoreSubtype) return switched
+
+        val subtypeEnabled = runCatching {
+            inputMethodManager
+                ?.getEnabledInputMethodSubtypeList(inputMethodInfo, true)
+                ?.any { it.hashCode() == subtypeHash } == true
+        }.getOrDefault(false)
+        if (!subtypeEnabled) return switched
+
+        val restored = runCommand(
+            listOf(
+                "/system/bin/settings",
+                "put",
+                "--user",
+                "current",
+                "secure",
+                Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE,
+                subtypeHash.toString()
+            )
+        )
+        return if (restored.success) {
+            switched.copy(elapsedMs = switched.elapsedMs + restored.elapsedMs)
+        } else {
+            restored.copy(
+                errorCode = "IME_SUBTYPE_RESTORE_FAILED",
+                errorMessage = "Input method switched, but its remembered subtype could not be restored.",
+                elapsedMs = switched.elapsedMs + restored.elapsedMs
             )
         }
     }
