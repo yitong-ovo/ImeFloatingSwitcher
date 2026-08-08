@@ -1,0 +1,5 @@
+Input method manager state:
+  mInputShown=true
+  mShowRequested=true
+  mImeWindowVis=0x3
+  mCurMethodId=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME

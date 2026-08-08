@@ -1,0 +1,4 @@
+Input method manager state:
+  mInputShown=false
+  mShowRequested=false
+  mImeWindowVis=0

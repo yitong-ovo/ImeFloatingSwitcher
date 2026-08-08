@@ -1,0 +1,3 @@
+Input method manager state:
+  mShowRequested=true
+  no_visibility_field=true
