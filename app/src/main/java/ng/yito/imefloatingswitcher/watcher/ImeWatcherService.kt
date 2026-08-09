@@ -71,7 +71,9 @@ class ImeWatcherService : Service() {
         screenActive = isScreenAndUnlocked()
         overlayController = OverlayController(
             context = this,
-            savePosition = { x, y -> serviceScope.launch { settingsRepository.savePosition(x, y) } },
+            savePosition = { index, x, y ->
+                serviceScope.launch { settingsRepository.savePosition(index, x, y) }
+            },
             onClick = ::handleOverlayClick,
             onVisibilityChanged = { visible ->
                 overlayAttached = visible
@@ -254,7 +256,8 @@ class ImeWatcherService : Service() {
                 updateNotification("目标输入法已禁用，请重新选择")
                 return@launch
             }
-            val result = gateway.setInputMethod(target, settings.rememberedSubtypeHash(target))
+            val rememberedSubtypeHash = settingsRepository.rememberedImeSubtypeHash(target)
+            val result = gateway.setInputMethod(target, rememberedSubtypeHash)
             switching.set(false)
             if (result.success) {
                 updateNotification("已切换输入法（${result.elapsedMs}ms）")

@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">输入法悬浮切换</string>
+    <string-array name="overlay_button_counts">
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+    </string-array>
+    <string name="overlay_button_size">悬浮按钮 %1$d · %2$d dp</string>
 </resources>

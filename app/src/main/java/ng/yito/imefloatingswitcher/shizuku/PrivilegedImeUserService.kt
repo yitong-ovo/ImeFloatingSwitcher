@@ -109,26 +109,37 @@ class PrivilegedImeUserService() : Stub() {
         }.getOrDefault(false)
         if (!subtypeEnabled) return switched
 
-        val restored = runCommand(
-            listOf(
-                "/system/bin/settings",
-                "put",
-                "--user",
-                "current",
-                "secure",
-                Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE,
-                subtypeHash.toString()
+        val restoreStarted = SystemClock.elapsedRealtime()
+        var lastRestore: SwitchResult? = null
+        repeat(2) {
+            lastRestore = runCommand(
+                listOf(
+                    "/system/bin/settings",
+                    "put",
+                    "--user",
+                    "current",
+                    "secure",
+                    Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE,
+                    subtypeHash.toString()
+                )
             )
-        )
-        return if (restored.success) {
-            switched.copy(elapsedMs = switched.elapsedMs + restored.elapsedMs)
-        } else {
-            restored.copy(
-                errorCode = "IME_SUBTYPE_RESTORE_FAILED",
-                errorMessage = "Input method switched, but its remembered subtype could not be restored.",
-                elapsedMs = switched.elapsedMs + restored.elapsedMs
-            )
+            SystemClock.sleep(SUBTYPE_APPLY_WAIT_MS)
+            val applied = lastRestore?.success == true && runCatching {
+                inputMethodManager?.currentInputMethodSubtype?.hashCode() == subtypeHash
+            }.getOrDefault(false)
+            if (applied) {
+                return switched.copy(
+                    elapsedMs = switched.elapsedMs + SystemClock.elapsedRealtime() - restoreStarted
+                )
+            }
         }
+        val failed = lastRestore ?: switched
+        return failed.copy(
+            success = false,
+            errorCode = "IME_SUBTYPE_RESTORE_FAILED",
+            errorMessage = "Input method switched, but its remembered subtype could not be restored.",
+            elapsedMs = switched.elapsedMs + SystemClock.elapsedRealtime() - restoreStarted
+        )
     }
 
     override fun destroy() {
@@ -196,4 +207,8 @@ class PrivilegedImeUserService() : Stub() {
         }
         String(output.toByteArray(), Charsets.UTF_8).take(32 * 1024)
     }.getOrDefault("")
+
+    private companion object {
+        const val SUBTYPE_APPLY_WAIT_MS = 120L
+    }
 }

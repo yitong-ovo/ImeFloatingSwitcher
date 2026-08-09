@@ -31,6 +31,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.chip.Chip
 import com.google.android.material.color.MaterialColors
@@ -41,12 +42,14 @@ import ng.yito.imefloatingswitcher.diagnostics.DiagnosticsFormatter
 import ng.yito.imefloatingswitcher.diagnostics.DiagnosticsRingBuffer
 import ng.yito.imefloatingswitcher.ime.EnabledImeRepository
 import ng.yito.imefloatingswitcher.ime.ImeInfo
+import ng.yito.imefloatingswitcher.ime.InputMethodSubtypeLabelResolver
 import ng.yito.imefloatingswitcher.ime.currentImeId
 import ng.yito.imefloatingswitcher.model.ImeSnapshot
 import ng.yito.imefloatingswitcher.overlay.FloatingImeButtonView
 import ng.yito.imefloatingswitcher.overlay.OverlayController
 import ng.yito.imefloatingswitcher.settings.AppSettings
 import ng.yito.imefloatingswitcher.settings.AppSettingsRepository
+import ng.yito.imefloatingswitcher.settings.MAX_OVERLAY_BUTTONS
 import ng.yito.imefloatingswitcher.shizuku.ShizukuGateway
 import ng.yito.imefloatingswitcher.watcher.ImeWatcherService
 import kotlinx.coroutines.Dispatchers
@@ -76,15 +79,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var secondaryImeField: MaterialAutoCompleteTextView
     private lateinit var imeSelectionHint: TextView
     private lateinit var manualAlwaysVisible: MaterialSwitch
-    private lateinit var buttonSizeLabel: TextView
-    private lateinit var buttonSizeSeekBar: SeekBar
-    private lateinit var buttonSizePreview: FloatingImeButtonView
+    private lateinit var buttonCountGroup: MaterialButtonToggleGroup
+    private val buttonCountIds = IntArray(MAX_OVERLAY_BUTTONS)
+    private val buttonSizeSections = mutableListOf<LinearLayout>()
+    private val buttonSizeLabels = mutableListOf<TextView>()
+    private val buttonSizeSeekBars = mutableListOf<SeekBar>()
+    private val buttonSizePreviews = mutableListOf<FloatingImeButtonView>()
     private lateinit var advancedContent: LinearLayout
     private lateinit var advancedToggle: TextView
     private lateinit var technicalStatusText: TextView
     private lateinit var diagnosticsText: TextView
     private lateinit var enabledImeRepository: EnabledImeRepository
     private lateinit var settingsRepository: AppSettingsRepository
+    private lateinit var subtypeLabelResolver: InputMethodSubtypeLabelResolver
     private lateinit var gateway: ShizukuGateway
     private lateinit var testOverlayController: OverlayController
     private val diagnostics = DiagnosticsRingBuffer()
@@ -115,10 +122,13 @@ class MainActivity : AppCompatActivity() {
         }
         enabledImeRepository = EnabledImeRepository(this)
         settingsRepository = AppSettingsRepository(this)
+        subtypeLabelResolver = InputMethodSubtypeLabelResolver(this)
         gateway = ShizukuGateway(this) { runOnUiThread { refreshStatus() } }
         testOverlayController = OverlayController(
             context = this,
-            savePosition = { x, y -> lifecycleScope.launch { settingsRepository.savePosition(x, y) } },
+            savePosition = { index, x, y ->
+                lifecycleScope.launch { settingsRepository.savePosition(index, x, y) }
+            },
             onClick = { toast("测试按钮可正常点击") }
         )
         setContentView(buildContent())
@@ -130,9 +140,7 @@ class MainActivity : AppCompatActivity() {
                 if (manualAlwaysVisible.isChecked != it.manualAlwaysVisible) {
                     manualAlwaysVisible.isChecked = it.manualAlwaysVisible
                 }
-                val progress = it.buttonSizeDp - BUTTON_SIZE_MIN_DP
-                if (buttonSizeSeekBar.progress != progress) buttonSizeSeekBar.progress = progress
-                updateButtonSizeLabel(it.buttonSizeDp)
+                syncOverlayButtonControls(it)
                 if (imeSelectionChanged) selectSavedImeIds(it)
                 refreshStatus()
             }
@@ -211,58 +219,50 @@ class MainActivity : AppCompatActivity() {
         inputMethodSection.addView(secondaryImeLayout, withTopMargin(12))
         imeSelectionHint = bodyText("").apply { setPadding(0, dp(8), 0, dp(8)) }
         inputMethodSection.addView(imeSelectionHint, matchParent())
-        buttonSizeLabel = TextView(this).apply {
+        inputMethodSection.addView(TextView(this).apply {
+            text = "悬浮按钮数量"
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
             setTextColor(themeColor(com.google.android.material.R.attr.colorOnSurface))
             setPadding(0, dp(12), 0, 0)
+        }, matchParent())
+        buttonCountGroup = MaterialButtonToggleGroup(this).apply {
+            isSingleSelection = true
+            isSelectionRequired = true
         }
-        inputMethodSection.addView(buttonSizeLabel, matchParent())
-        buttonSizeSeekBar = SeekBar(this).apply {
-            max = BUTTON_SIZE_MAX_DP - BUTTON_SIZE_MIN_DP
-            progress = appSettings.buttonSizeDp - BUTTON_SIZE_MIN_DP
-            contentDescription = "调整悬浮按钮大小"
-            minHeight = dp(48)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    updateButtonSizeLabel(progress + BUTTON_SIZE_MIN_DP)
-                }
-
-                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    lifecycleScope.launch {
-                        settingsRepository.setButtonSizeDp(
-                            (seekBar?.progress ?: 12) + BUTTON_SIZE_MIN_DP
-                        )
-                    }
-                }
-            })
-        }
-        val buttonSizeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        buttonSizeRow.addView(
-            buttonSizeSeekBar,
-            LinearLayout.LayoutParams(0, dp(72), 1f).apply { marginEnd = dp(12) }
-        )
-        buttonSizePreview = FloatingImeButtonView(this).apply {
-            setState("切换", false)
-            isClickable = false
-            isFocusable = false
-            contentDescription = "悬浮按钮大小预览"
-        }
-        buttonSizeRow.addView(FrameLayout(this).apply {
-            addView(
-                buttonSizePreview,
-                FrameLayout.LayoutParams(
-                    dp(appSettings.buttonSizeDp),
-                    dp(appSettings.buttonSizeDp),
-                    Gravity.CENTER
-                )
+        val buttonCountLabels = resources.getStringArray(R.array.overlay_button_counts)
+        repeat(MAX_OVERLAY_BUTTONS) { index ->
+            buttonCountIds[index] = View.generateViewId()
+            buttonCountGroup.addView(
+                MaterialButton(
+                    this@MainActivity,
+                    null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle
+                ).apply {
+                    id = buttonCountIds[index]
+                    text = buttonCountLabels[index]
+                    isCheckable = true
+                    isAllCaps = false
+                    minWidth = 0
+                    minHeight = dp(48)
+                    contentDescription = "显示${index + 1}个悬浮按钮"
+                },
+                LinearLayout.LayoutParams(0, dp(48), 1f)
             )
-        }, LinearLayout.LayoutParams(dp(72), dp(72)))
-        inputMethodSection.addView(buttonSizeRow, matchParent())
+        }
+        buttonCountGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            val count = buttonCountIds.indexOf(checkedId) + 1
+            if (count > 0 && count != appSettings.overlayButtonCount) {
+                lifecycleScope.launch { settingsRepository.setOverlayButtonCount(count) }
+            }
+        }
+        inputMethodSection.addView(buttonCountGroup, withTopMargin(8))
+        inputMethodSection.addView(bodyText("多个按钮功能相同，可分别拖到顺手的位置。").apply {
+            setPadding(0, dp(8), 0, 0)
+        }, matchParent())
+        repeat(MAX_OVERLAY_BUTTONS) { index ->
+            inputMethodSection.addView(buildButtonSizeSection(index), matchParent())
+        }
         root.addView(inputMethodSection, matchParent())
 
         advancedToggle = TextView(this).apply {
@@ -323,7 +323,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(advancedContent, matchParent())
 
         configureImeSelectionListeners()
-        updateButtonSizeLabel(appSettings.buttonSizeDp)
+        syncOverlayButtonControls(appSettings)
         return scrollView
     }
 
@@ -446,7 +446,16 @@ class MainActivity : AppCompatActivity() {
             enabledImes.size < 2 -> "至少需要启用两个输入法。"
             primary == null || secondary == null -> "请选择两个输入法。"
             primary == secondary -> "主输入法和辅助输入法不能相同。"
-            else -> "选择会自动保存，并记住每个输入法上次使用的语言。"
+            else -> buildString {
+                append("选择会自动保存，并记住每个输入法上次使用的语言。")
+                listOfNotNull(
+                    rememberedSubtypeHint(primary),
+                    rememberedSubtypeHint(secondary)
+                ).takeIf { it.isNotEmpty() }?.let {
+                    append('\n')
+                    append(it.joinToString("；"))
+                }
+            }
         }
         val error = primary == secondary && primary != null || enabledImes.size < 2
         imeSelectionHint.text = message
@@ -457,6 +466,17 @@ class MainActivity : AppCompatActivity() {
             )
         )
         secondaryImeLayout.error = if (primary == secondary && primary != null) message else null
+    }
+
+    private fun rememberedSubtypeHint(imeId: String): String? {
+        val subtype = subtypeLabelResolver.resolve(imeId, appSettings.rememberedSubtypeHash(imeId))
+            ?: return null
+        val imeLabel = enabledImes.firstOrNull { it.id == imeId }?.label ?: return null
+        return if (subtype.shortLabel == "?") {
+            "$imeLabel：尚未记忆语言"
+        } else {
+            "$imeLabel 已记忆：${subtype.fullLabel}"
+        }
     }
 
     private fun testImeSnapshot() {
@@ -751,16 +771,86 @@ class MainActivity : AppCompatActivity() {
         if (expanded) refreshStatus()
     }
 
-    private fun updateButtonSizeLabel(sizeDp: Int) {
-        if (!::buttonSizeLabel.isInitialized) return
-        buttonSizeLabel.text = "悬浮按钮大小 · $sizeDp dp"
-        if (::buttonSizeSeekBar.isInitialized) buttonSizeSeekBar.stateDescription = "$sizeDp dp"
-        if (::buttonSizePreview.isInitialized) {
-            buttonSizePreview.layoutParams = buttonSizePreview.layoutParams.apply {
+    private fun buildButtonSizeSection(index: Int): LinearLayout {
+        val section = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val label = TextView(this).apply {
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
+            setTextColor(themeColor(com.google.android.material.R.attr.colorOnSurface))
+            setPadding(0, dp(16), 0, 0)
+        }
+        buttonSizeLabels += label
+        section.addView(label, matchParent())
+        val seekBar = SeekBar(this).apply {
+            max = BUTTON_SIZE_MAX_DP - BUTTON_SIZE_MIN_DP
+            contentDescription = "调整悬浮按钮${index + 1}大小"
+            minHeight = dp(48)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    updateButtonSizeLabel(index, progress + BUTTON_SIZE_MIN_DP)
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    val size = (seekBar?.progress ?: 0) + BUTTON_SIZE_MIN_DP
+                    lifecycleScope.launch { settingsRepository.setButtonSizeDp(index, size) }
+                }
+            })
+        }
+        buttonSizeSeekBars += seekBar
+        val preview = FloatingImeButtonView(this).apply {
+            setState("切换", false, buttonNumber = index + 1)
+            isClickable = false
+            isFocusable = false
+            contentDescription = "悬浮按钮${index + 1}大小预览"
+        }
+        buttonSizePreviews += preview
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        row.addView(
+            seekBar,
+            LinearLayout.LayoutParams(0, dp(72), 1f).apply { marginEnd = dp(12) }
+        )
+        row.addView(FrameLayout(this).apply {
+            addView(
+                preview,
+                FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER)
+            )
+        }, LinearLayout.LayoutParams(dp(72), dp(72)))
+        section.addView(row, matchParent())
+        buttonSizeSections += section
+        return section
+    }
+
+    private fun syncOverlayButtonControls(settings: AppSettings) {
+        if (!::buttonCountGroup.isInitialized) return
+        val checkedId = buttonCountIds[settings.overlayButtonCount - 1]
+        if (buttonCountGroup.checkedButtonId != checkedId) buttonCountGroup.check(checkedId)
+        repeat(MAX_OVERLAY_BUTTONS) { index ->
+            val size = settings.overlayButton(index).sizeDp
+            buttonSizeSections[index].visibility =
+                if (index < settings.overlayButtonCount) View.VISIBLE else View.GONE
+            val progress = size - BUTTON_SIZE_MIN_DP
+            if (buttonSizeSeekBars[index].progress != progress) {
+                buttonSizeSeekBars[index].progress = progress
+            }
+            updateButtonSizeLabel(index, size)
+        }
+    }
+
+    private fun updateButtonSizeLabel(index: Int, sizeDp: Int) {
+        if (buttonSizeLabels.size <= index) return
+        buttonSizeLabels[index].text = getString(R.string.overlay_button_size, index + 1, sizeDp)
+        buttonSizeSeekBars[index].stateDescription = "$sizeDp dp"
+        buttonSizePreviews[index].apply {
+            setVisualDiameter(dp(sizeDp))
+            layoutParams = layoutParams.apply {
                 width = dp(sizeDp)
                 height = dp(sizeDp)
             }
-            buttonSizePreview.stateDescription = "$sizeDp dp"
+            stateDescription = "$sizeDp dp"
         }
     }
 

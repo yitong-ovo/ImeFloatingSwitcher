@@ -9,6 +9,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import kotlin.math.hypot
+import kotlin.math.min
 
 class FloatingImeButtonView(context: Context) : View(context) {
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -20,6 +21,10 @@ class FloatingImeButtonView(context: Context) : View(context) {
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var onDragTo: ((Int, Int) -> Unit)? = null
     private var targetLabel = "切换"
+    private var subtypeLabel: String? = null
+    private var subtypeDescription: String? = null
+    private var buttonNumber = 1
+    private var visualDiameterPx = 0
     private var switching = false
     private var downRawX = 0f
     private var downRawY = 0f
@@ -38,10 +43,29 @@ class FloatingImeButtonView(context: Context) : View(context) {
         onDragTo = listener
     }
 
-    fun setState(targetLabel: String, switching: Boolean) {
+    fun setState(
+        targetLabel: String,
+        switching: Boolean,
+        subtypeLabel: String? = null,
+        subtypeDescription: String? = null,
+        buttonNumber: Int = 1
+    ) {
         this.targetLabel = targetLabel.ifBlank { "切换" }.take(4)
+        this.subtypeLabel = subtypeLabel?.ifBlank { null }?.take(2)
+        this.subtypeDescription = subtypeDescription?.ifBlank { null }
+        this.buttonNumber = buttonNumber
         this.switching = switching
-        contentDescription = if (switching) "正在切换输入法" else "切换到${this.targetLabel}"
+        contentDescription = when {
+            switching -> "悬浮按钮$buttonNumber，正在切换输入法"
+            this.subtypeDescription != null ->
+                "悬浮按钮$buttonNumber，切换到${this.targetLabel}，记忆语言${this.subtypeDescription}"
+            else -> "悬浮按钮$buttonNumber，切换到${this.targetLabel}"
+        }
+        invalidate()
+    }
+
+    fun setVisualDiameter(diameterPx: Int) {
+        visualDiameterPx = diameterPx.coerceAtLeast(1)
         invalidate()
     }
 
@@ -52,12 +76,25 @@ class FloatingImeButtonView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val radius = width / 2f - 2f
+        val diameter = (if (visualDiameterPx > 0) visualDiameterPx else min(width, height))
+            .coerceAtMost(min(width, height))
+            .toFloat()
+        val centerX = width / 2f
+        val centerY = height / 2f
+        val radius = (diameter / 2f - resources.displayMetrics.density).coerceAtLeast(1f)
         fillPaint.color = if (switching) Color.rgb(92, 92, 96) else Color.rgb(37, 99, 235)
-        canvas.drawCircle(width / 2f, height / 2f, radius, fillPaint)
-        textPaint.textSize = if (targetLabel.length <= 2) width * 0.30f else width * 0.22f
-        val baseline = height / 2f - (textPaint.ascent() + textPaint.descent()) / 2f
-        canvas.drawText(if (switching) "…" else targetLabel, width / 2f, baseline, textPaint)
+        canvas.drawCircle(centerX, centerY, radius, fillPaint)
+        if (switching || subtypeLabel == null) {
+            textPaint.textSize = if (targetLabel.length <= 2) diameter * 0.30f else diameter * 0.22f
+            val baseline = centerY - (textPaint.ascent() + textPaint.descent()) / 2f
+            canvas.drawText(if (switching) "…" else targetLabel, centerX, baseline, textPaint)
+            return
+        }
+
+        textPaint.textSize = if (targetLabel.length <= 2) diameter * 0.27f else diameter * 0.20f
+        canvas.drawText(targetLabel, centerX, centerY - diameter * 0.04f, textPaint)
+        textPaint.textSize = diameter * 0.18f
+        canvas.drawText(subtypeLabel.orEmpty(), centerX, centerY + diameter * 0.25f, textPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
