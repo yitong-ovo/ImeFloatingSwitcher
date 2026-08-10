@@ -124,7 +124,7 @@ class PrivilegedImeUserService() : Stub() {
                 )
             )
             SystemClock.sleep(SUBTYPE_APPLY_WAIT_MS)
-            val applied = lastRestore?.success == true && runCatching {
+            val applied = lastRestore.success && runCatching {
                 inputMethodManager?.currentInputMethodSubtype?.hashCode() == subtypeHash
             }.getOrDefault(false)
             if (applied) {
